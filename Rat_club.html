@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🐀 Rat Club Dashboard v0.4 — API Edition</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Noto+Sans+TC:wght@300;400;600&display=swap');
+
+* { margin:0; padding:0; box-sizing:border-box; }
+:root {
+  --bg: #0f1117; --surface: #1a1d27; --surface2: #252833;
+  --border: #2e3140; --text: #e0e2eb; --text2: #8b8fa3;
+  --accent: #4ecdc4; --hot: #ff6b6b; --warn: #feca57;
+  --green: #2ed573; --purple: #a29bfe;
+}
+body { background: var(--bg); color: var(--text); font-family: 'Noto Sans TC', sans-serif; }
+.mono { font-family: 'JetBrains Mono', monospace; }
+
+/* Layout */
+.app { display: grid; grid-template-columns: 340px 1fr; height: 100vh; }
+.sidebar { background: var(--surface); border-right: 1px solid var(--border); overflow-y: auto; padding: 20px; }
+.map-area { position: relative; }
+#map { width: 100%; height: 100%; }
+
+/* Sidebar */
+.logo { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
+.logo span { color: var(--accent); }
+.subtitle { font-size: 12px; color: var(--text2); margin-bottom: 16px; }
+
+/* Tabs */
+.tab-row { display: flex; gap: 0; margin-bottom: 16px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
+.tab-btn {
+  flex: 1; padding: 8px 0; text-align: center; font-size: 12px; font-weight: 600;
+  background: var(--surface2); color: var(--text2); cursor: pointer; border: none;
+  transition: all 0.2s;
+}
+.tab-btn.active { background: var(--accent); color: var(--bg); }
+.tab-btn:hover:not(.active) { background: var(--border); }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+/* API panel */
+.api-form { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.input-group { display: flex; flex-direction: column; gap: 4px; }
+.input-group label { font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.5px; }
+.input-group input[type=date] {
+  background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+  padding: 8px 10px; border-radius: 6px; font-family: 'JetBrains Mono', monospace; font-size: 13px;
+}
+.input-group input[type=date]:focus { outline: none; border-color: var(--accent); }
+.date-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.fetch-btn {
+  background: var(--accent); color: var(--bg); border: none; padding: 10px 16px;
+  border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer;
+  transition: all 0.2s; font-family: 'Noto Sans TC', sans-serif;
+}
+.fetch-btn:hover { filter: brightness(1.1); transform: translateY(-1px); }
+.fetch-btn:active { transform: translateY(0); }
+.fetch-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+.fetch-progress {
+  font-size: 11px; color: var(--text2); font-family: 'JetBrains Mono', monospace;
+  min-height: 16px; margin-top: 4px;
+}
+.fetch-progress .live { color: var(--accent); }
+.fetch-progress .err { color: var(--hot); }
+
+/* Drop zone */
+.dropzone {
+  border: 2px dashed var(--border); border-radius: 12px;
+  padding: 24px 16px; text-align: center; cursor: pointer;
+  transition: all 0.3s; margin-bottom: 16px; position: relative;
+}
+.dropzone:hover, .dropzone.dragover { border-color: var(--accent); background: rgba(78,205,196,0.05); }
+.dropzone input { position:absolute; inset:0; opacity:0; cursor:pointer; }
+.dropzone .icon { font-size: 28px; margin-bottom: 8px; }
+.dropzone .label { font-size: 13px; color: var(--text2); }
+.dropzone .label b { color: var(--accent); }
+
+/* Stats cards */
+.stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px; }
+.stat-card {
+  background: var(--surface2); border-radius: 8px; padding: 12px;
+  border: 1px solid var(--border);
+}
+.stat-card .val { font-size: 20px; font-weight: 600; }
+.stat-card .val.hot { color: var(--hot); }
+.stat-card .val.accent { color: var(--accent); }
+.stat-card .lbl { font-size: 11px; color: var(--text2); margin-top: 2px; }
+.stat-wide { grid-column: span 2; }
+
+/* Controls */
+.section { margin-bottom: 16px; }
+.section-title { font-size: 12px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+.control-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; }
+.control-row label { font-size: 13px; display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.control-row input[type=checkbox] { accent-color: var(--accent); }
+.control-row .val { font-size: 12px; color: var(--accent); font-family: 'JetBrains Mono', monospace; }
+input[type=range] { width: 100%; accent-color: var(--accent); margin: 4px 0; }
+
+/* Grid size selector */
+.grid-row { display: flex; gap: 4px; margin-bottom: 12px; }
+.grid-btn {
+  flex: 1; padding: 5px 0; text-align: center; font-size: 11px;
+  background: var(--surface2); color: var(--text2); border: 1px solid var(--border);
+  border-radius: 4px; cursor: pointer; font-family: 'JetBrains Mono', monospace;
+  transition: all 0.2s;
+}
+.grid-btn.active { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+.grid-btn:hover:not(.active) { border-color: var(--text2); }
+
+/* District table */
+.dist-table { width: 100%; font-size: 12px; border-collapse: collapse; }
+.dist-table th { text-align: left; padding: 4px 6px; color: var(--text2); font-weight: 400; border-bottom: 1px solid var(--border); }
+.dist-table td { padding: 4px 6px; font-family: 'JetBrains Mono', monospace; }
+.dist-table tr:hover { background: rgba(78,205,196,0.05); cursor: default; }
+.bar-cell { position: relative; }
+.bar-fill { position: absolute; left: 0; top: 2px; bottom: 2px; background: var(--accent); opacity: 0.15; border-radius: 3px; }
+.rr-high { color: var(--green); }
+.rr-mid { color: var(--warn); }
+.rr-low { color: var(--hot); }
+
+/* Status */
+.status-bar { font-size: 11px; color: var(--text2); padding: 8px 0; border-top: 1px solid var(--border); margin-top: 8px; }
+.status-bar .ready { color: var(--green); }
+.status-bar .empty { color: var(--warn); }
+
+/* Legend on map */
+.map-legend {
+  position: absolute; bottom: 20px; left: 20px; z-index: 1000;
+  background: rgba(15,17,23,0.9); padding: 10px 14px; border-radius: 8px;
+  font-size: 11px; color: var(--text2); backdrop-filter: blur(8px);
+}
+.legend-gradient { width: 100px; height: 8px; border-radius: 4px; margin: 4px 0;
+  background: linear-gradient(to right, #ffffb2, #fd8d3c, #f03b20, #bd0026, #800026); }
+.legend-row { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+
+/* Data source badge */
+.source-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px; padding: 2px 8px; border-radius: 10px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.source-badge.api { background: rgba(78,205,196,0.15); color: var(--accent); }
+.source-badge.csv { background: rgba(162,155,254,0.15); color: var(--purple); }
+
+/* Mobile */
+@media (max-width: 768px) {
+  .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+  .sidebar { max-height: 45vh; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="sidebar">
+    <div class="logo">🐀 <span>Rat Club</span></div>
+    <div class="subtitle mono">台北鼠口推演沙盒 v0.4 — API Edition</div>
+
+    <!-- Data Source Tabs -->
+    <div class="tab-row">
+      <button class="tab-btn active" data-tab="api">⚡ API 即時</button>
+      <button class="tab-btn" data-tab="csv">📂 CSV 檔案</button>
+    </div>
+
+    <!-- API Panel -->
+    <div class="tab-panel active" id="panel-api">
+      <div class="api-form">
+        <div class="date-row">
+          <div class="input-group">
+            <label>起始日期</label>
+            <input type="date" id="apiFrom" />
+          </div>
+          <div class="input-group">
+            <label>結束日期</label>
+            <input type="date" id="apiTo" />
+          </div>
+        </div>
+        <button class="fetch-btn" id="fetchBtn" onclick="fetchAPI()">🐀 拉取資料</button>
+        <div class="fetch-progress" id="fetchProgress"></div>
+      </div>
+    </div>
+
+    <!-- CSV Panel -->
+    <div class="tab-panel" id="panel-csv">
+      <div class="dropzone" id="dropzone">
+        <input type="file" id="csvInput" accept=".csv">
+        <div class="icon">📂</div>
+        <div class="label">拖入 <b>Rat Radar CSV</b> 或點擊選檔<br><span style="font-size:11px;color:#555;">支援 ratdar.taipei 匯出格式</span></div>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats" id="statsCards">
+      <div class="stat-card"><div class="val empty">—</div><div class="lbl">鼠蹤通報</div></div>
+      <div class="stat-card"><div class="val empty">—</div><div class="lbl">毒餌位置</div></div>
+      <div class="stat-card"><div class="val empty">—</div><div class="lbl">涵蓋天數</div></div>
+      <div class="stat-card"><div class="val empty">—</div><div class="lbl">有鼠 cells (T)</div></div>
+    </div>
+
+    <!-- Grid Size -->
+    <div class="section">
+      <div class="section-title">Grid 解析度</div>
+      <div class="grid-row">
+        <button class="grid-btn" data-grid="0.002" onclick="setGrid(this)">200m</button>
+        <button class="grid-btn active" data-grid="0.005" onclick="setGrid(this)">500m</button>
+        <button class="grid-btn" data-grid="0.01" onclick="setGrid(this)">1.1km</button>
+      </div>
+    </div>
+
+    <!-- Layer Controls -->
+    <div class="section">
+      <div class="section-title">圖層控制</div>
+      <div class="control-row"><label><input type="checkbox" id="togHeat" checked> 🔥 熱力圖</label></div>
+      <div class="control-row"><label><input type="checkbox" id="togBait" checked> ☠️ 毒餌</label></div>
+      <div class="control-row"><label><input type="checkbox" id="togSentinel" checked> 📍 Sentinel Sites</label></div>
+      <div class="control-row"><label><input type="checkbox" id="togPoints"> 🔵 個別通報點</label></div>
+    </div>
+
+    <!-- Heat Map Controls -->
+    <div class="section">
+      <div class="section-title">Heat Map 參數</div>
+      <div class="control-row"><span style="font-size:13px;">半徑</span><span class="val" id="rVal">25px</span></div>
+      <input type="range" id="rSlider" min="5" max="60" value="25">
+      <div class="control-row"><span style="font-size:13px;">模糊度</span><span class="val" id="bVal">15</span></div>
+      <input type="range" id="bSlider" min="1" max="40" value="15">
+    </div>
+
+    <!-- District Table -->
+    <div class="section" id="distSection" style="display:none;">
+      <div class="section-title">各區通報排名</div>
+      <table class="dist-table" id="distTable"></table>
+    </div>
+
+    <div class="status-bar" id="statusBar">
+      <span class="empty">等待資料載入...</span>
+    </div>
+  </div>
+
+  <div class="map-area">
+    <div id="map"></div>
+    <div class="map-legend">
+      <div style="font-weight:600;margin-bottom:4px;">密度圖例</div>
+      <div class="legend-gradient"></div>
+      <div style="display:flex;justify-content:space-between;"><span>低</span><span>高</span></div>
+      <div style="margin-top:6px;">
+        <div class="legend-row">☠️ 毒餌位置</div>
+        <div class="legend-row"><span style="color:#e74c3c;">■</span> Sentinel Site</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+<script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+<script>
+// === CONFIG ===
+const API_BASE = 'https://ratdar.taipei/api/v1/reports';
+const PER_PAGE = 500;
+let GRID = 0.005; // default 500m
+
+// === MAP INIT ===
+const map = L.map('map', { zoomControl: false }).setView([25.035, 121.53], 13);
+L.control.zoom({ position: 'topright' }).addTo(map);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; OSM &copy; CARTO', subdomains: 'abcd', maxZoom: 19
+}).addTo(map);
+
+// === STATE ===
+let heatLayer = null, baitGroup = L.layerGroup().addTo(map), pointGroup = L.layerGroup();
+let sentinelGroup = L.layerGroup().addTo(map);
+let currentData = null; // store raw entries for re-processing on grid change
+let dataSource = null; // 'api' or 'csv'
+
+// Sentinel sites
+const sentinels = [
+  { lat: 25.0390, lon: 121.5010, name: '萬華 直興市場', dist: '臺北市 萬華區' },
+  { lat: 25.0348, lon: 121.5041, name: '萬華 三水街', dist: '臺北市 萬華區' },
+  { lat: 25.03239, lon: 121.51803, name: '中正 南門市場', dist: '臺北市 中正區' },
+  { lat: 25.03449, lon: 121.55382, name: '大安 敦安公園', dist: '臺北市 大安區' },
+  { lat: 25.0590, lon: 121.5209, name: '中山 雙連市場', dist: '臺北市 中山區' },
+  { lat: 25.04810, lon: 121.56378, name: '東興路與八德路交叉口', dist: '臺北市 松山區' }
+];
+const sentinelIcon = L.divIcon({
+  html: '<div style="background:#e74c3c;color:white;font-size:9px;padding:2px 5px;border-radius:3px;white-space:nowrap;font-weight:600;box-shadow:0 1px 4px rgba(0,0,0,0.5);">S</div>',
+  className: '', iconAnchor: [6, 6]
+});
+
+// === DATE DEFAULTS ===
+(function setDefaults() {
+  const today = new Date();
+  const weekAgo = new Date(today);
+  weekAgo.setDate(weekAgo.getDate() - 7);
+  document.getElementById('apiTo').value = today.toISOString().split('T')[0];
+  document.getElementById('apiFrom').value = '2026-05-01'; // ratdar launch date
+})();
+
+// === TAB SWITCHING ===
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+// === GRID SIZE ===
+function setGrid(el) {
+  document.querySelectorAll('.grid-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  GRID = parseFloat(el.dataset.grid);
+  // Re-process if we have data
+  if (currentData) {
+    const processed = processEntries(currentData.entries);
+    renderData(processed);
+  }
+}
+
+// === GRID CELL ===
+function toGrid(lat, lon) {
+  return `${(Math.round(lat / GRID) * GRID).toFixed(4)},${(Math.round(lon / GRID) * GRID).toFixed(4)}`;
+}
+
+// === API FETCH ===
+async function fetchAPI() {
+  const btn = document.getElementById('fetchBtn');
+  const progress = document.getElementById('fetchProgress');
+  const from = document.getElementById('apiFrom').value;
+  const to = document.getElementById('apiTo').value;
+
+  if (!from) { progress.innerHTML = '<span class="err">請選擇起始日期</span>'; return; }
+
+  btn.disabled = true;
+  btn.textContent = '🔄 拉取中...';
+  
+  const allEntries = [];
+  let page = 1;
+  let totalPages = 1;
+
+  try {
+    // Fetch rat reports
+    progress.innerHTML = '<span class="live">拉取鼠蹤通報...</span>';
+    while (page <= totalPages) {
+      let url = `${API_BASE}?type=rat&per_page=${PER_PAGE}&page=${page}&from=${from}`;
+      if (to) url += `&to=${to}`;
+      
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error(`API 回應 ${resp.status}`);
+      const json = await resp.json();
+      
+      json.data.forEach(r => allEntries.push({ ...r, _type: 'rat' }));
+      totalPages = json.meta.last_page;
+      progress.innerHTML = `<span class="live">鼠蹤 ${page}/${totalPages} 頁 (${allEntries.length} 筆)...</span>`;
+      page++;
+      
+      // Small delay to be polite to API
+      if (page <= totalPages) await new Promise(r => setTimeout(r, 200));
+    }
+
+    // Fetch poison reports
+    progress.innerHTML = '<span class="live">拉取毒餌通報...</span>';
+    page = 1; totalPages = 1;
+    const poisonEntries = [];
+    while (page <= totalPages) {
+      let url = `${API_BASE}?type=poison&per_page=${PER_PAGE}&page=${page}&from=${from}`;
+      if (to) url += `&to=${to}`;
+      
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error(`API 回應 ${resp.status}`);
+      const json = await resp.json();
+      
+      json.data.forEach(r => poisonEntries.push({ ...r, _type: 'poison' }));
+      totalPages = json.meta.last_page;
+      page++;
+      if (page <= totalPages) await new Promise(r => setTimeout(r, 200));
+    }
+    
+    poisonEntries.forEach(r => allEntries.push(r));
+    
+    progress.innerHTML = `<span class="live">處理 ${allEntries.length} 筆資料...</span>`;
+    
+    // Normalize API entries to common format
+    const normalized = allEntries.map(r => ({
+      lat: r.latitude,
+      lon: r.longitude,
+      loc: r.address || '',
+      desc: (r.description || '').slice(0, 80),
+      time: r.reported_at || '',
+      date: (r.reported_at || '').split('T')[0],
+      type: r._type,
+      status: r.status || 'unknown',
+      image: r.image_url || null,
+      id: r.id
+    })).filter(r => !isNaN(r.lat) && !isNaN(r.lon));
+
+    currentData = { entries: normalized };
+    dataSource = 'api';
+    const processed = processEntries(normalized);
+    renderData(processed);
+    
+    progress.innerHTML = `<span class="live">✓ ${normalized.length} 筆已載入</span>`;
+
+  } catch (err) {
+    progress.innerHTML = `<span class="err">❌ ${err.message}</span>`;
+    console.error(err);
+  }
+
+  btn.disabled = false;
+  btn.textContent = '🐀 拉取資料';
+}
+
+// === CSV PROCESSING ===
+function processCSVFile(text) {
+  const result = Papa.parse(text, { header: true, skipEmptyLines: true });
+  const normalized = result.data.map(r => {
+    try {
+      const lat = parseFloat(r['緯度']);
+      const lon = parseFloat(r['經度']);
+      if (isNaN(lat) || isNaN(lon)) return null;
+      
+      const type = (r['類型'] || '').trim();
+      const time = (r['通報時間'] || '').replace(/"/g, '').trim();
+      
+      return {
+        lat, lon,
+        loc: (r['地點'] || '').trim(),
+        desc: (r['說明'] || '').trim().slice(0, 80),
+        time,
+        date: time.split(' ')[0],
+        type: type === '毒餌' ? 'poison' : 'rat',
+        status: 'approved', // CSV only has approved
+        image: null,
+        id: null
+      };
+    } catch(e) { return null; }
+  }).filter(Boolean);
+
+  currentData = { entries: normalized };
+  dataSource = 'csv';
+  const processed = processEntries(normalized);
+  renderData(processed);
+}
+
+// === COMMON PROCESSING (shared by API and CSV) ===
+function processEntries(entries) {
+  const rats = [], baits = [];
+  const districts = {}, dates = new Set();
+
+  entries.forEach(r => {
+    dates.add(r.date);
+    if (r.type === 'poison') { baits.push(r); }
+    else { rats.push(r); districts[r.loc] = (districts[r.loc] || 0) + 1; }
+  });
+
+  const sortedDates = [...dates].sort();
+
+  // === Auerbach: split dates in half ===
+  const midIdx = Math.ceil(sortedDates.length / 2);
+  const s1Dates = new Set(sortedDates.slice(0, midIdx));
+  const s2Dates = new Set(sortedDates.slice(midIdx));
+
+  // Per-district grid cells
+  const distAuerbach = {};
+  rats.forEach(r => {
+    const cell = toGrid(r.lat, r.lon);
+    const dist = r.loc;
+    if (!distAuerbach[dist]) distAuerbach[dist] = { s1: new Set(), s2: new Set() };
+    if (s1Dates.has(r.date)) distAuerbach[dist].s1.add(cell);
+    if (s2Dates.has(r.date)) distAuerbach[dist].s2.add(cell);
+  });
+
+  // Calc recapture rates per district
+  const recaptureRates = {};
+  Object.entries(distAuerbach).forEach(([dist, { s1, s2 }]) => {
+    const r = [...s1].filter(c => s2.has(c)).length;
+    const rate = s1.size > 0 ? (r / s1.size * 100) : 0;
+    const t = r > 0 ? Math.round(s1.size * s2.size / r) : null;
+    recaptureRates[dist] = { s1: s1.size, s2: s2.size, r, rate: Math.round(rate), t };
+  });
+
+  // Global Auerbach
+  const globalS1 = new Set(), globalS2 = new Set();
+  rats.forEach(r => {
+    const cell = toGrid(r.lat, r.lon);
+    if (s1Dates.has(r.date)) globalS1.add(cell);
+    if (s2Dates.has(r.date)) globalS2.add(cell);
+  });
+  const globalR = [...globalS1].filter(c => globalS2.has(c)).length;
+  const globalT = globalR > 0 ? Math.round(globalS1.size * globalS2.size / globalR) : null;
+  const globalRate = globalS1.size > 0 ? Math.round(globalR / globalS1.size * 100) : 0;
+
+  return {
+    rats, baits, districts, dates: sortedDates,
+    recaptureRates,
+    auerbach: { s1: globalS1.size, s2: globalS2.size, r: globalR, rate: globalRate, t: globalT },
+    s1Range: sortedDates.slice(0, midIdx),
+    s2Range: sortedDates.slice(midIdx)
+  };
+}
+
+// === RENDER ===
+function renderData(data) {
+  // Clear previous
+  if (heatLayer) { map.removeLayer(heatLayer); heatLayer = null; }
+  baitGroup.clearLayers();
+  pointGroup.clearLayers();
+  sentinelGroup.clearLayers();
+
+  // Heat map
+  const heatData = data.rats.map(r => [r.lat, r.lon, 0.5]);
+  const radius = parseInt(document.getElementById('rSlider').value);
+  const blur = parseInt(document.getElementById('bSlider').value);
+  heatLayer = L.heatLayer(heatData, {
+    radius, blur, maxZoom: 17, minOpacity: 0.3,
+    gradient: { 0.2: '#ffffb2', 0.4: '#fd8d3c', 0.6: '#f03b20', 0.8: '#bd0026', 1: '#800026' }
+  }).addTo(map);
+
+  // Bait markers
+  const baitIcon = L.divIcon({
+    html: '<div style="font-size:18px;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.8));">☠️</div>',
+    className: '', iconSize: [24,24], iconAnchor: [12,12]
+  });
+  data.baits.forEach(b => {
+    L.marker([b.lat, b.lon], { icon: baitIcon })
+      .bindPopup(`<b>毒餌</b><br>${b.desc || '(無說明)'}<br><small>${b.time}</small>`)
+      .addTo(baitGroup);
+  });
+
+  // Sentinel markers with dynamic rates
+  sentinels.forEach(s => {
+    const rr = data.recaptureRates[s.dist];
+    const rateStr = rr ? `${rr.rate}%` : 'N/A';
+    L.marker([s.lat, s.lon], { icon: sentinelIcon })
+      .bindPopup(`<b>${s.name}</b><br>Recapture: ${rateStr}${rr ? `<br>S1=${rr.s1} S2=${rr.s2} R=${rr.r}` : ''}`)
+      .addTo(sentinelGroup);
+  });
+
+  // Individual points (off by default)
+  data.rats.forEach(r => {
+    let popupHTML = `<b>${r.loc}</b><br>${r.desc || '(無說明)'}<br><small>${r.time}</small>`;
+    if (r.id) popupHTML += `<br><small style="color:#888;">ID: ${r.id}</small>`;
+    L.circleMarker([r.lat, r.lon], {
+      radius: 3, color: '#4ecdc4', weight: 0, fillOpacity: 0.4
+    }).bindPopup(popupHTML).addTo(pointGroup);
+  });
+
+  // Stats cards
+  const a = data.auerbach;
+  const daysSpan = data.dates.length;
+  const srcBadge = dataSource === 'api'
+    ? '<span class="source-badge api">⚡ API</span>'
+    : '<span class="source-badge csv">📂 CSV</span>';
+
+  document.getElementById('statsCards').innerHTML = `
+    <div class="stat-card"><div class="val hot">${data.rats.length}</div><div class="lbl">鼠蹤通報</div></div>
+    <div class="stat-card"><div class="val accent">${data.baits.length}</div><div class="lbl">毒餌位置</div></div>
+    <div class="stat-card"><div class="val">${daysSpan}</div><div class="lbl">涵蓋天數</div></div>
+    <div class="stat-card"><div class="val">${a.t !== null ? a.t : '—'}</div><div class="lbl">有鼠 cells (T)</div></div>
+    <div class="stat-card stat-wide"><div class="lbl mono" style="font-size:11px;">
+      ${srcBadge} Auerbach: S1=${a.s1} × S2=${a.s2} ÷ R=${a.r} = T=${a.t || 'N/A'} | RR ${a.rate}% | Grid ${GRID}°<br>
+      S1: ${data.s1Range[0] || '?'} ~ ${data.s1Range[data.s1Range.length-1] || '?'} |
+      S2: ${data.s2Range[0] || '?'} ~ ${data.s2Range[data.s2Range.length-1] || '?'}
+    </div></div>
+  `;
+
+  // District table
+  const sorted = Object.entries(data.districts).sort((a,b) => b[1]-a[1]).slice(0, 15);
+  const maxVal = sorted[0]?.[1] || 1;
+  let tableHTML = '<tr><th>區域</th><th style="text-align:right;">通報</th><th style="text-align:right;">RR%</th></tr>';
+  sorted.forEach(([name, count]) => {
+    const pct = (count / maxVal * 100).toFixed(0);
+    const rr = data.recaptureRates[name];
+    const rrStr = rr && rr.r > 0 ? `${rr.rate}%` : '<span style="color:#555">—</span>';
+    const rrClass = rr && rr.rate >= 50 ? 'rr-high' : rr && rr.rate >= 30 ? 'rr-mid' : 'rr-low';
+    tableHTML += `<tr><td class="bar-cell"><div class="bar-fill" style="width:${pct}%"></div>${name}</td><td style="text-align:right;">${count}</td><td style="text-align:right;" class="${rr && rr.r > 0 ? rrClass : ''}">${rrStr}</td></tr>`;
+  });
+  document.getElementById('distTable').innerHTML = tableHTML;
+  document.getElementById('distSection').style.display = 'block';
+
+  // Status
+  document.getElementById('statusBar').innerHTML = `
+    <span class="ready">✓ 已載入</span> ${data.dates[0]} ~ ${data.dates[data.dates.length-1]} · ${data.rats.length + data.baits.length} 筆 · Grid ${GRID}°
+  `;
+
+  // Fit bounds
+  if (data.rats.length > 0) {
+    const bounds = L.latLngBounds(data.rats.map(r => [r.lat, r.lon]));
+    map.fitBounds(bounds, { padding: [40, 40] });
+  }
+}
+
+// === CSV FILE INPUT ===
+const dropzone = document.getElementById('dropzone');
+const csvInput = document.getElementById('csvInput');
+
+csvInput.addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  readCSVFile(file);
+});
+
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault(); dropzone.classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if (file) readCSVFile(file);
+});
+
+function readCSVFile(file) {
+  dropzone.querySelector('.label').innerHTML = `<b>${file.name}</b> 載入中...`;
+  const reader = new FileReader();
+  reader.onload = e => {
+    processCSVFile(e.target.result);
+    dropzone.querySelector('.label').innerHTML = `✓ <b>${file.name}</b> <span style="font-size:11px;color:#555;">點擊更換檔案</span>`;
+  };
+  reader.readAsText(file, 'UTF-8');
+}
+
+// === LAYER TOGGLES ===
+document.getElementById('togHeat').onchange = function() {
+  if (!heatLayer) return;
+  this.checked ? map.addLayer(heatLayer) : map.removeLayer(heatLayer);
+};
+document.getElementById('togBait').onchange = function() {
+  this.checked ? map.addLayer(baitGroup) : map.removeLayer(baitGroup);
+};
+document.getElementById('togSentinel').onchange = function() {
+  this.checked ? map.addLayer(sentinelGroup) : map.removeLayer(sentinelGroup);
+};
+document.getElementById('togPoints').onchange = function() {
+  this.checked ? map.addLayer(pointGroup) : map.removeLayer(pointGroup);
+};
+
+// === HEAT MAP CONTROLS ===
+document.getElementById('rSlider').oninput = function() {
+  document.getElementById('rVal').textContent = this.value + 'px';
+  if (!heatLayer) return;
+  map.removeLayer(heatLayer);
+  heatLayer.setOptions({ radius: parseInt(this.value) });
+  if (document.getElementById('togHeat').checked) map.addLayer(heatLayer);
+};
+document.getElementById('bSlider').oninput = function() {
+  document.getElementById('bVal').textContent = this.value;
+  if (!heatLayer) return;
+  map.removeLayer(heatLayer);
+  heatLayer.setOptions({ blur: parseInt(this.value) });
+  if (document.getElementById('togHeat').checked) map.addLayer(heatLayer);
+};
+</script>
+</body>
+</html>
